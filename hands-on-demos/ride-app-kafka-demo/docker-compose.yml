@@ -1,0 +1,140 @@
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  broker-1:
+    image: confluentinc/cp-kafka:latest
+    container_name: broker-1
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker-1:9092,PLAINTEXT_HOST://host.docker.internal:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+
+  broker-2:
+    image: confluentinc/cp-kafka:latest
+    container_name: broker-2
+    depends_on:
+      - zookeeper
+      - broker-1
+    ports:
+      - "9093:9093"
+      - "29093:29093"
+    environment:
+      KAFKA_BROKER_ID: 2
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker-2:9093,PLAINTEXT_HOST://localhost:29093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+
+  broker-3:
+    image: confluentinc/cp-kafka:latest
+    container_name: broker-3
+    depends_on:
+      - zookeeper
+      - broker-1
+      - broker-2
+    ports:
+      - "9094:9094"
+      - "29094:29094"
+    environment:
+      KAFKA_BROKER_ID: 3
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker-3:9094,PLAINTEXT_HOST://localhost:29094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    depends_on:
+      - broker-1
+      - broker-2
+      - broker-3
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAP_SERVERS: broker-1:9092,broker-2:9093,broker-3:9094
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+
+  postgres-ride-request-service:
+    image: postgres:15.2
+    container_name: postgres-ride-request-service
+    restart: always
+    environment:
+      POSTGRES_DB: ride_requests
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_ride_data:/var/lib/postgresql/data
+
+  postgres-ride-matching-service:
+    image: postgres:15.2
+    container_name: postgres-ride-matching-service
+    restart: always
+    environment:
+      POSTGRES_DB: ride_matching
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_match_data:/var/lib/postgresql/data
+
+  ride-request-service:
+    build:
+      context: ./ride-request-service
+      dockerfile: Dockerfile
+    container_name: ride-request-service
+    depends_on:
+      - broker-1
+      - broker-2
+      - broker-3
+      - postgres-ride-request-service
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-ride-request-service:5432/ride_requests
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: password
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: broker-1:9092,broker-2:9093,broker-3:9094
+
+  ride-matching-service:
+    build:
+      context: ./ride-matching-service
+      dockerfile: Dockerfile
+    container_name: ride-matching-service
+    depends_on:
+      - broker-1
+      - broker-2
+      - broker-3
+      - postgres-ride-matching-service
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-ride-matching-service:5432/ride_matching
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: password
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: broker-1:9092,broker-2:9093,broker-3:9094
+
+volumes:
+  postgres_ride_data:
+  postgres_match_data:
